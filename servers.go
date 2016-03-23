@@ -1,12 +1,23 @@
+// CloudDNSBenchmark
+// Copyright (C) 2016 Josh Gardiner
+
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
 package main
 
 var servers = []string{
-	// "180.181.127.3",
-	// "180.181.127.4",
-	// "203.0.178.191",
-	// "203.215.29.191",
-	// "172.17.0.6",
-	// "192.168.1.1",
 	// "208.76.50.50",   // Smart Viper
 	// "208.76.51.51",   // Smart Viper
 	"8.8.8.8",        // Google DNS #1

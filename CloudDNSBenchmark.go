@@ -1,3 +1,19 @@
+// CloudDNSBenchmark
+// Copyright (C) 2016 Josh Gardiner
+
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 package main
 
 import (
@@ -31,6 +47,10 @@ func main() {
 		*numOfQueries = 200
 	}
 	fmt.Printf("Starting CloudDNS Benchmarks, using %d random domains\n", *numOfQueries)
+	fmt.Println("CloudDNSBenchmark version 0.0.1, Copyright (C) 2016 Josh Gardiner")
+	fmt.Println("CloudDNSBenchmark comes with ABSOLUTELY NO WARRANTY;")
+	fmt.Println("This is free software, and you are welcome to redistribute it")
+	fmt.Println("under certain conditions;")
 
 	config := new(dns.ClientConfig)
 
@@ -146,8 +166,8 @@ func generateReport(results []result) {
 
 	fmt.Println("Results, Ordered by lowest average response time")
 
-	for _, v := range report {
-		fmt.Printf("%15v    %v\n", v.server, v.times)
+	for k, v := range report {
+		fmt.Printf("#%3d  %15v    %v\n", k, v.server, v.times)
 	}
 
 }
@@ -177,7 +197,7 @@ func calcRoundTrip(times Times) roundTrip {
 
 func (r roundTrip) String() string {
 
-	return fmt.Sprintf("min[%5.1f]ms max[%5.1f]ms avg[%5.1f]ms std[%5.1f]ms ", r.min, r.max, r.avg, r.std)
+	return fmt.Sprintf("min[%6.1f]ms max[%6.1f]ms avg[%6.1f]ms std[%6.1f]ms ", r.min, r.max, r.avg, r.std)
 }
 
 func min(times Times) float64 {
