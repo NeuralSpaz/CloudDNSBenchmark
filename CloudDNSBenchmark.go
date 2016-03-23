@@ -17,11 +17,13 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"math"
 	"math/rand"
 	"net"
+	"os"
 	"sort"
 	"time"
 
@@ -46,12 +48,13 @@ func main() {
 	if *numOfQueries > 200 {
 		*numOfQueries = 200
 	}
-	fmt.Printf("Starting CloudDNS Benchmarks, using %d random domains\n", *numOfQueries)
-	fmt.Println("CloudDNSBenchmark version 0.0.1, Copyright (C) 2016 Josh Gardiner")
+
+	fmt.Println("\nCloudDNSBenchmark version 0.0.2, Copyright (C) 2016 Josh Gardiner")
 	fmt.Println("CloudDNSBenchmark comes with ABSOLUTELY NO WARRANTY;")
 	fmt.Println("This is free software, and you are welcome to redistribute it")
 	fmt.Println("under certain conditions;")
 
+	fmt.Printf("\n\nStarting CloudDNS Benchmarks, using %d random domains\n", *numOfQueries)
 	config := new(dns.ClientConfig)
 
 	config.Port = "53"
@@ -126,6 +129,25 @@ func main() {
 	}
 
 	generateReport(results)
+	fmt.Print("\nPress SPACEBAR then ENTER to exit \n")
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+		if scanner.Text() == " " {
+			fmt.Println("exiting")
+			os.Exit(0)
+		}
+	}
+	// reader := bufio.NewReader(os.Stdin)
+	// fmt.Print("\nPress SpaceBar to exit \n")
+	// for {
+
+	// 	in, _ := reader.ReadString('\n')
+	// 	if in == " " {
+	// 		fmt.Println("exiting")
+	// 		os.Exit(0)
+	// 	}
+	// }
 
 }
 
