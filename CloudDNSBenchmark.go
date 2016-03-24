@@ -162,7 +162,7 @@ func dnsworker(query Query) {
 	config := new(dns.ClientConfig)
 	config.Port = "53"
 	config.Ndots = 1
-	config.Timeout = 20
+	config.Timeout = 60
 	config.Attempts = 5
 
 	var r Result
