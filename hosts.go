@@ -17,7 +17,7 @@
 
 package main
 
-var Hosts = []string{
+var Hosts = List{
 	"google.com",
 	"facebook.com",
 	"doubleclick.net",

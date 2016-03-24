@@ -25,16 +25,114 @@ import (
 	"net"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/miekg/dns"
 )
 
 var (
-	numOfQueries = flag.Int("q", 20, "Number of domains to test max is 200")
+	numOfQueries  = flag.Int("q", 20, "Number of domains to test max is 200")
+	numOResolvers = flag.Int("r", 40, "Number of simutanious resolvers")
 )
 
-type result struct {
+func main() {
+
+	flag.Parse()
+
+	fmt.Println("\nCloudDNSBenchmark version 0.0.3, Copyright (C) 2016 Josh Gardiner")
+	fmt.Println("CloudDNSBenchmark comes with ABSOLUTELY NO WARRANTY;")
+	fmt.Println("This is free software, and you are welcome to redistribute it")
+	fmt.Println("under certain conditions;")
+	fmt.Printf("\n\nStarting CloudDNS Benchmarks, using %d random domains\n", *numOfQueries)
+
+	results := generator()
+
+	generateReport(results)
+
+	fmt.Print("\nPress ENTER to exit \n")
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+		if scanner.Text() == "" {
+			fmt.Println("exiting")
+			os.Exit(0)
+		}
+	}
+
+}
+
+func generator() []Result {
+	var results []Result
+	hosts := Hosts.randomSelect(*numOfQueries)
+	resp := make(chan Result)
+	quries := buildQuries(hosts, Servers, resp)
+	var wg sync.WaitGroup
+	wg.Add(len(quries))
+
+	for _, v := range quries {
+		go dnsworker(v)
+	}
+
+	queueLength := len(quries)
+	queuePosition := 0
+	for i := 0; i < *numOResolvers; i++ {
+		if queuePosition < queueLength {
+			quries[queuePosition].wait <- false
+			queuePosition++
+		}
+
+	}
+
+	go func() {
+		for {
+			select {
+			case r := <-resp:
+				fmt.Println(r)
+				if queuePosition < queueLength {
+					quries[queuePosition].wait <- false
+					queuePosition++
+				}
+				results = append(results, r)
+				wg.Done()
+			}
+		}
+	}()
+
+	wg.Wait()
+	return results
+
+}
+
+func buildQuries(hosts, servers []string, resp chan Result) []Query {
+	var quries []Query
+	for i := range hosts {
+		for j := range servers {
+			var q Query
+			q.wait = make(chan bool)
+			q.result = resp
+			q.host = hosts[i]
+			q.server = servers[j]
+			quries = append(quries, q)
+		}
+	}
+	return quries
+}
+
+type List []string
+
+func (l List) randomSelect(num int) []string {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	var items []string
+
+	for i := 0; i < num; i++ {
+		item := l[r.Intn(len(l))]
+		items = append(items, item)
+	}
+	return items
+}
+
+type Result struct {
 	server string
 	host   string
 	rtt    time.Duration
@@ -42,113 +140,57 @@ type result struct {
 	ok     bool
 }
 
-func main() {
-
-	flag.Parse()
-	if *numOfQueries > 200 {
-		*numOfQueries = 200
+func (r Result) String() string {
+	if r.ok {
+		return fmt.Sprintf("server: %15v host: %31v, time [%6v]ms", r.server, r.host, r.rtt.Nanoseconds()/1e6)
+	} else {
+		return fmt.Sprintf("server: %15v host: %31v, error [timeout]", r.server, r.host)
 	}
+}
 
-	fmt.Println("\nCloudDNSBenchmark version 0.0.2, Copyright (C) 2016 Josh Gardiner")
-	fmt.Println("CloudDNSBenchmark comes with ABSOLUTELY NO WARRANTY;")
-	fmt.Println("This is free software, and you are welcome to redistribute it")
-	fmt.Println("under certain conditions;")
+type Query struct {
+	server string
+	host   string
+	wait   chan bool
+	result chan Result
+}
 
-	fmt.Printf("\n\nStarting CloudDNS Benchmarks, using %d random domains\n", *numOfQueries)
+type Querier func(Query)
+
+func dnsworker(query Query) {
+	<-query.wait
 	config := new(dns.ClientConfig)
-
 	config.Port = "53"
 	config.Ndots = 1
 	config.Timeout = 20
 	config.Attempts = 5
 
-	var hosts []string
-	longesthostname := 0
+	var r Result
+	r.server = query.server
+	r.host = query.host
+	r.ok = false
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	for i := 0; i < *numOfQueries; i++ {
-		host := Hosts[r.Intn(len(Hosts))]
-		// fmt.Println(host)
-		hosts = append(hosts, host)
-		if len(host) > longesthostname {
-			longesthostname = len(host)
-		}
-	}
-
-	longestservername := 0
-	for i := 0; i < len(servers); i++ {
-		if len(servers[i]) > longestservername {
-			longestservername = len(servers[i])
-		}
-		config.Servers = append(config.Servers, servers[i])
-	}
-
-	for i := 0; i < len(servers); i++ {
-		for j := len(servers[i]); j < longestservername; j++ {
-			servers[i] = servers[i] + " "
-		}
-	}
-
-	// config, _ := dns.ClientConfigFromFile("/etc/resolv.conf")
 	c := new(dns.Client)
-
 	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(query.host), dns.TypeA)
+	m.RecursionDesired = true
 
-	var results []result
-	for _, host := range hosts {
-		m.SetQuestion(dns.Fqdn(host), dns.TypeA)
-		m.RecursionDesired = true
-
-		for i := 0; i < len(servers); i++ {
-			var res result
-			retries := 0
-		retry:
-			r, rtt, err := c.Exchange(m, net.JoinHostPort(config.Servers[i], config.Port))
-			if r == nil {
-				fmt.Printf("Host %s DNS server %s error: [%v]\n", host, servers[i], err)
-				retries++
-				res.errors = retries
-				if retries < config.Attempts {
-					goto retry
-				} else {
-					res.ok = false
-					goto end
-
-				}
+	for !r.ok {
+		ans, rtt, _ := c.Exchange(m, net.JoinHostPort(query.server, config.Port))
+		if ans == nil {
+			// fmt.Printf("Host %s DNS server %s error: [%v]\n", query.host, query.server, err)
+			r.errors++
+			if r.errors > config.Attempts {
+				query.result <- r
+				return
 			}
-			fmt.Printf("Host %s DNS server %s query time: [%5v]ms\n", host, servers[i], rtt.Nanoseconds()/1e6)
-
-			res.server = config.Servers[i]
-			res.host = host
-			res.rtt = rtt
-			res.ok = true
-			results = append(results, res)
-		end:
+		} else {
+			r.rtt = rtt
+			r.ok = true
 		}
 	}
 
-	generateReport(results)
-	fmt.Print("\nPress SPACEBAR then ENTER to exit \n")
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		fmt.Println(scanner.Text())
-		if scanner.Text() == " " {
-			fmt.Println("exiting")
-			os.Exit(0)
-		}
-	}
-	// reader := bufio.NewReader(os.Stdin)
-	// fmt.Print("\nPress SpaceBar to exit \n")
-	// for {
-
-	// 	in, _ := reader.ReadString('\n')
-	// 	if in == " " {
-	// 		fmt.Println("exiting")
-	// 		os.Exit(0)
-	// 	}
-	// }
-
+	query.result <- r
 }
 
 type roundTrip struct {
@@ -164,11 +206,12 @@ type Times []time.Duration
 type record struct {
 	server string
 	times  roundTrip
+	errors int
 }
 
 type Report []record
 
-func generateReport(results []result) {
+func generateReport(results []Result) {
 	s := make(map[string]Times)
 	for _, v := range results {
 		if v.ok {
@@ -186,10 +229,10 @@ func generateReport(results []result) {
 	}
 	sort.Sort(report)
 
-	fmt.Println("Results, Ordered by lowest average response time")
+	fmt.Println("\n\nResults; Ordered by lowest average response time")
 
 	for k, v := range report {
-		fmt.Printf("#%3d  %15v    %v\n", k, v.server, v.times)
+		fmt.Printf("#%2d %15v %v\n", k+1, v.server, v.times)
 	}
 
 }
@@ -219,7 +262,7 @@ func calcRoundTrip(times Times) roundTrip {
 
 func (r roundTrip) String() string {
 
-	return fmt.Sprintf("min[%6.1f]ms max[%6.1f]ms avg[%6.1f]ms std[%6.1f]ms ", r.min, r.max, r.avg, r.std)
+	return fmt.Sprintf("min[%6.1f]ms max[%6.1f]ms avg[%6.1f]ms jitter[%6.1f]ms ", r.min, r.max, r.avg, r.std)
 }
 
 func min(times Times) float64 {

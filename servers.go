@@ -17,7 +17,7 @@
 
 package main
 
-var servers = []string{
+var Servers = []string{
 	// "208.76.50.50",   // Smart Viper
 	// "208.76.51.51",   // Smart Viper
 	"8.8.8.8",        // Google DNS #1
