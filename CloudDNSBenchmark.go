@@ -34,6 +34,7 @@ import (
 var (
 	numOfQueries  = flag.Int("q", 20, "Number of domains to test max is 200")
 	numOResolvers = flag.Int("r", 40, "Number of simutanious resolvers")
+	typeofHost    = flag.String("type", "t", "use top domains or others")
 )
 
 func main() {
@@ -64,47 +65,85 @@ func main() {
 
 func generator() []Result {
 	var results []Result
-	hosts := Hosts.randomSelect(*numOfQueries)
-	resp := make(chan Result)
-	quries := buildQuries(hosts, Servers, resp)
-	var wg sync.WaitGroup
-	wg.Add(len(quries))
+	var hosts List
+	if *typeofHost == "top" {
+		hosts = Top.randomSelect(*numOfQueries)
+	} else {
+		hosts = Hosts.randomSelect(*numOfQueries)
+	}
 
-	for _, v := range quries {
+	cloudResults := make(chan Result)
+	cloudQuries := buildCloudQuries(hosts, Servers, cloudResults)
+	var wg sync.WaitGroup
+	// var localwg sync.WaitGroup
+	wg.Add(len(cloudQuries))
+
+	for _, v := range cloudQuries {
 		go dnsworker(v)
 	}
 
-	queueLength := len(quries)
+	queueLength := len(cloudQuries)
 	queuePosition := 0
 	for i := 0; i < *numOResolvers; i++ {
 		if queuePosition < queueLength {
-			quries[queuePosition].wait <- false
+			cloudQuries[queuePosition].wait <- false
 			queuePosition++
 		}
-
 	}
 
+	localResults := make(chan Result)
+	localQuries := buildLocalQuries(hosts, localResults)
+
+	localQueueLength := len(localQuries)
+	localQueuePosition := 0
+
+	for _, v := range localQuries {
+		go localLookup(v)
+	}
+
+	// Running Cloud DNS
 	go func() {
 		for {
 			select {
-			case r := <-resp:
+			case r := <-cloudResults:
 				fmt.Println(r)
 				if queuePosition < queueLength {
-					quries[queuePosition].wait <- false
+					cloudQuries[queuePosition].wait <- false
 					queuePosition++
 				}
 				results = append(results, r)
+				wg.Done()
+			case l := <-localResults:
+				fmt.Println(l)
+				if localQueuePosition < localQueueLength {
+					localQuries[localQueuePosition].wait <- false
+					localQueuePosition++
+				}
+				results = append(results, l)
 				wg.Done()
 			}
 		}
 	}()
 
 	wg.Wait()
+
+	// Running Local Resolver
+	fmt.Println("Now Running Local")
+	wg.Add(len(localQuries))
+
+	for i := 0; i < 3; i++ {
+		if localQueuePosition < localQueueLength {
+			localQuries[localQueuePosition].wait <- false
+			localQueuePosition++
+		}
+	}
+
+	wg.Wait()
 	return results
 
 }
 
-func buildQuries(hosts, servers []string, resp chan Result) []Query {
+func buildCloudQuries(hosts, servers []string, resp chan Result) []Query {
 	var quries []Query
 	for i := range hosts {
 		for j := range servers {
@@ -115,6 +154,18 @@ func buildQuries(hosts, servers []string, resp chan Result) []Query {
 			q.server = servers[j]
 			quries = append(quries, q)
 		}
+	}
+	return quries
+}
+
+func buildLocalQuries(hosts []string, resp chan Result) []Query {
+	var quries []Query
+	for i := range hosts {
+		var q Query
+		q.wait = make(chan bool)
+		q.result = resp
+		q.host = hosts[i]
+		quries = append(quries, q)
 	}
 	return quries
 }
@@ -171,6 +222,8 @@ func dnsworker(query Query) {
 	r.ok = false
 
 	c := new(dns.Client)
+	c.DialTimeout = 8 * time.Second
+	c.ReadTimeout = 8 * time.Second
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(query.host), dns.TypeA)
 	m.RecursionDesired = true
@@ -189,8 +242,35 @@ func dnsworker(query Query) {
 			r.ok = true
 		}
 	}
+	query.result <- r
+}
+
+func localLookup(query Query) {
+	<-query.wait
+	var r Result
+	r.host = query.host
+	r.server = "Current DNS"
+	r.ok = true
+	var retries int
+	var lookuptime time.Duration
+
+	for retries = 0; retries < 5; retries++ {
+		start := time.Now()
+		_, err := net.LookupHost(r.host)
+		end := time.Now()
+		lookuptime = end.Sub(start)
+		if err == nil {
+			r.rtt = lookuptime
+			query.result <- r
+			return
+		}
+	}
+	lookuptime = 0
+	r.errors = retries
+	r.ok = false
 
 	query.result <- r
+
 }
 
 type roundTrip struct {
